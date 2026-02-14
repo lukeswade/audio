@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Architectures 2026: Technical Analysis v7</title>
+    <title>Audio Architectures 2026: Technical Analysis v8</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM -->
@@ -108,8 +108,8 @@
                 1. Echo Show 21 (Built-in) is the baseline (6.0/10).
                 2. TV/Movie Audio on Echo Show 21 DOES NOT support Alexa Home Theater (Wireless Stereo).
                 3. It supports Bluetooth (Single) or Legacy Groups (Mirrored Mono).
-                4. Single Echo Dot Max (BT) rates 7.2/10 for clarity.
-                5. Dual Echo Dot Max (Group) rates 5.5/10 due to phase cancellation and mono imaging.
+                4. Single Echo Dot Max (BT) rates 7.2/10 for clarity (Upgrade vs Baseline).
+                5. Dual Echo Dot Max (Group) rates 5.5/10 (Downgrade vs Baseline) due to phase cancellation and mirrored mono imaging.
                 6. Bose Soundbar 550 CANNOT SimpleSync to a stereo pair of Flex speakers.
             `;
 
@@ -301,13 +301,13 @@
                     music_rating: 6.0,
                     music_desc: 'Functional. Good for timers and news. Gets drowned out by range hoods.',
                     tv_rating: 4.5,
-                    tv_desc: 'Downgrade. Connects via Bluetooth. The single 1.73" driver sounds thin and boxy compared to the Show 21\'s wider integrated soundbar.'
+                    tv_desc: 'Downgrade (vs Baseline). Connects via Bluetooth. The single 1.73" driver sounds thin and boxy compared to the Show 21\'s wider integrated soundbar.'
                 },
                 pair: {
                     music_rating: 7.5,
                     music_desc: 'Decent stereo field for background music. Still lacks bass authority.',
                     tv_rating: 4.0,
-                    tv_desc: 'Downgrade (Mirrored). Because they are not stereo-paired for video, you get two mono sources fighting each other. Phase cancellation makes dialogue harder to understand than the built-in speakers.'
+                    tv_desc: 'Downgrade (Mirrored Mono). Playing identical left+right audio on two speakers causes phase cancellation/comb filtering. Dialogue is harder to understand than the built-in speaker.'
                 }
             },
             {
@@ -316,13 +316,13 @@
                     music_rating: 8.0,
                     music_desc: 'Strong performer. Omnidirectional sound fills kitchen corners effectively.',
                     tv_rating: 6.5,
-                    tv_desc: 'Slight Upgrade. Connects via Bluetooth. The 3.0" woofer adds warmth to male vocals and effects that the Show 21 lacks, though you lose the "screen-centered" imaging.'
+                    tv_desc: 'Side-grade (vs Baseline). You gain low-end warmth from the 3" woofer, but lose the "center channel" directivity of the Show 21\'s screen-mounted speakers.'
                 },
                 pair: {
                     music_rating: 9.0,
                     music_desc: 'Club-like atmosphere. Great bass for cooking, but visually bulky on counters.',
                     tv_rating: 5.0,
-                    tv_desc: 'Downgrade (Mirrored). Dual mono bass is powerful, but without L/R separation, the soundstage collapses. Lip-sync latency via Group playback makes action scenes frustrating.'
+                    tv_desc: 'Downgrade (Mirrored Mono). Heavy bass with two mono sources creates a muddy wall of sound. Lip-sync latency is often higher in group playback.'
                 }
             },
             {
@@ -331,13 +331,13 @@
                     music_rating: 8.5,
                     music_desc: 'The sweet spot. Small footprint, punchy mid-bass, clear highs.',
                     tv_rating: 7.2,
-                    tv_desc: 'Upgrade. Connects via Bluetooth. The dedicated tweeter projects dialogue with superior crispness over the frying pan noise, beating the built-in speakers.'
+                    tv_desc: 'Upgrade (vs Baseline). The dedicated tweeter projects dialogue with superior crispness that cuts through kitchen noise better than the built-in speakers.'
                 },
                 pair: {
                     music_rating: 9.5,
                     music_desc: 'Audiophile kitchen. Best clarity and separation available in this form factor.',
                     tv_rating: 5.5,
-                    tv_desc: 'Downgrade (Mirrored). While loud and clear, running two identical signals causes "comb filtering." It sounds unnatural compared to the dedicated stereo separation of the Show 21\'s built-in bar.'
+                    tv_desc: 'Downgrade (Mirrored Mono). You lose the clarity gained by the single unit because the two identical signals smear the audio image. Stick to one unit for TV.'
                 }
             }
         ];
@@ -806,7 +806,7 @@
                             ))}
                         </nav>
                         <div className="px-4 text-xs text-slate-600 mt-4">
-                            Report ID: 7ed9ffe9-v7
+                            Report ID: 7ed9ffe9-v8
                         </div>
                     </aside>
 
