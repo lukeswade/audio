@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Architectures 2026: Technical Analysis v7</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+            color: #e2e8f0; /* slate-200 */
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b; 
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .active-tab {
+            background-color: #3b82f6;
+            color: white;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .chat-message {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .bose-fail {
+            background: repeating-linear-gradient(
+              45deg,
+              rgba(239, 68, 68, 0.1),
+              rgba(239, 68, 68, 0.1) 10px,
+              rgba(239, 68, 68, 0.2) 10px,
+              rgba(239, 68, 68, 0.2) 20px
+            );
+        }
+
+        .markdown-body p { margin-bottom: 0.75em; }
+        .markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 0.75em; }
+        .markdown-body strong { color: #60a5fa; }
+    </style>
+</head>
+<body class="h-screen overflow-hidden flex flex-col">
+
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Gemini API Configuration ---
+        const callGemini = async (prompt, chatHistory) => {
+            const apiKey = ""; // API Key injected at runtime
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            
+            // Construct context from the report data for the AI
+            const reportContext = `
+                You are the "Audio Architect AI," an expert assistant for this technical report.
+                Use the following report data to answer user questions. Be concise and technical.
+                
+                DATA SUMMARY:
+                1. Echo Show 21 (Built-in) is the baseline (6.0/10).
+                2. TV/Movie Audio on Echo Show 21 DOES NOT support Alexa Home Theater (Wireless Stereo).
+                3. It supports Bluetooth (Single) or Legacy Groups (Mirrored Mono).
+                4. Single Echo Dot Max (BT) rates 7.2/10 for clarity.
+                5. Dual Echo Dot Max (Group) rates 5.5/10 due to phase cancellation and mono imaging.
+                6. Bose Soundbar 550 CANNOT SimpleSync to a stereo pair of Flex speakers.
+            `;
+
+            const contents = [
+                { role: "user", parts: [{ text: reportContext }] },
+                ...chatHistory.map(msg => ({
+                    role: msg.role === 'user' ? 'user' : 'model',
+                    parts: [{ text: msg.content }]
+                })),
+                { role: "user", parts: [{ text: prompt }] }
+            ];
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents })
+                });
+
+                const data = await response.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "Communication error with Audio Architect AI.";
+            } catch (error) {
+                console.error("Gemini Error:", error);
+                return "System malfunction. Unable to reach neural core.";
+            }
+        };
+
+        // --- Inline Icons ---
+        const IconBase = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+
+        const Speaker = (p) => <IconBase {...p}><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><circle cx="12" cy="14" r="4"/><line x1="12" x2="12.01" y1="6" y2="6"/></IconBase>;
+        const Home = (p) => <IconBase {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></IconBase>;
+        const Tv = (p) => <IconBase {...p}><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/><polyline points="2 12 22 12"/></IconBase>;
+        const Radio = (p) => <IconBase {...p}><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></IconBase>;
+        const Zap = (p) => <IconBase {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></IconBase>;
+        const CheckCircle2 = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></IconBase>;
+        const XCircle = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></IconBase>;
+        const Layers = (p) => <IconBase {...p}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></IconBase>;
+        const Menu = (p) => <IconBase {...p}><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></IconBase>;
+        const X = (p) => <IconBase {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></IconBase>;
+        const Sun = (p) => <IconBase {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41-1.41"/><path d="m19.07 4.93-1.41 1.41"/></IconBase>;
+        const Bot = (p) => <IconBase {...p}><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></IconBase>;
+        const Send = (p) => <IconBase {...p}><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></IconBase>;
+        const Loader2 = (p) => <IconBase {...p} className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></IconBase>;
+
+        // --- Data Content ---
+
+        const combinedSpeakerData = [
+            {
+                id: 'echo-gen4',
+                name: 'Amazon Echo (Gen 4)',
+                category: 'Home Wi-Fi',
+                specs: '3.0" Woofer + 2x 0.8" Tweeters',
+                standalone: {
+                    desc: 'Omnidirectional mono point source. The dual tweeters face forward/angularly, creating a "wide mono" effect rather than true stereo. Bass is impressive (hits 50Hz) but can mask midrange vocals.',
+                    score: 7.5
+                },
+                stereo: {
+                    desc: 'Drastic improvement. Decoupling L/R channels allows the woofers to focus on low-end impact without muddying the mids. Creates a genuine phantom center channel. Rivals entry-level soundbars.',
+                    score: 9.2
+                }
+            },
+            {
+                id: 'echo-dot5',
+                name: 'Echo Dot (Gen 5)',
+                category: 'Home Wi-Fi',
+                specs: '1.73" Full-Range Driver',
+                standalone: {
+                    desc: 'Optimized for voice clarity. Bass is psycho-acoustic (DSP boosted harmonics) rather than physical displacement. Sounds thin at volumes >60%.',
+                    score: 6.0
+                },
+                stereo: {
+                    desc: 'Adds significant width, but exposes the lack of physical bass. In a pair, the "thinness" is more apparent because the soundstage is wider but lacks weight. Good for background jazz, bad for movies.',
+                    score: 7.0
+                }
+            },
+            {
+                id: 'echo-dot-max',
+                name: 'Echo Dot Max',
+                category: 'Home Wi-Fi',
+                specs: '2.5" Woofer + 0.8" Tweeter (2-Way)',
+                standalone: {
+                    desc: 'A true 2-way shelf speaker. The dedicated tweeter separates highs from lows effectively. Far superior to Dot 5 for critical listening in mono.',
+                    score: 8.5
+                },
+                stereo: {
+                    desc: 'The "Audiophile Value King." Pairing these creates a high-fidelity 2.0 system with surprising transient speed. The dedicated tweeters in stereo produce "air" and sparkle missing from the Gen 4.',
+                    score: 9.5
+                }
+            },
+            {
+                id: 'citation-200',
+                name: 'HK Citation 200',
+                category: 'Portable Wi-Fi/BT',
+                specs: '1" Tweeter + 5" Woofer (120mm)',
+                standalone: {
+                    desc: 'The heavy hitter. With a 5-inch woofer, it physically displaces more air than any other portable on this list. Deep, resonant bass (40Hz) that doesn\'t rely on DSP trickery. Warm, sophisticated sound signature.',
+                    score: 9.0
+                },
+                stereo: {
+                    desc: 'Rivals dedicated bookshelf speakers ($1000+ range). The stereo separation coupled with the massive drivers creates a wall of sound. Wi-Fi pairing provides higher bandwidth than Bluetooth competitors.',
+                    score: 9.8
+                }
+            },
+            {
+                id: 'flex-gen2',
+                name: 'Bose SoundLink Flex 2',
+                category: 'Portable BT',
+                specs: 'Transducer + Dual Passive Radiators',
+                standalone: {
+                    desc: 'PositionIQ adjusts EQ based on orientation. Sounds larger than it is due to Bose DSP compression, but strictly mono. Great vocal projection.',
+                    score: 8.0
+                },
+                stereo: {
+                    desc: 'Creates a distinct separation. However, Bluetooth bandwidth limitations soften the transients compared to Wi-Fi pairs. Great for music, but latency is noticeable for video.',
+                    score: 8.2
+                }
+            },
+            {
+                id: 'wonderboom-3',
+                name: 'UE Wonderboom 3',
+                category: 'Portable BT',
+                specs: '2x 40mm Active + 2x Passive',
+                standalone: {
+                    desc: '360-degree sound. Tuned for loudness (outdoor mode). Lacks sub-bass (<80Hz) entirely. Mids are recessed (V-shaped).',
+                    score: 6.5
+                },
+                stereo: {
+                    desc: 'Essentially a "Wall of Sound." It gets incredibly loud, but imaging is vague due to the 360-degree dispersion patterns fighting each other. Good for parties, bad for focused listening.',
+                    score: 7.5
+                }
+            }
+        ];
+
+        const portableStereoData = [
+            {
+                name: 'HK Citation 200 (Pair)',
+                backyardScore: 9.5,
+                strengths: [
+                    'Massive Bass Projection: Fills open air better than any competitor due to 5" woofers.',
+                    'Wi-Fi Range: Connects to home network, extending further into yard than phone-tethered Bluetooth.',
+                    'Fidelity: Maintains detail at high volumes without aggressive compression.'
+                ],
+                weaknesses: [
+                    'Durability: Only IPX4 (splashproof). Cannot be left in rain or dropped in pool.',
+                    'Portability: Heavy and requires carrying cradle/dock. Not "throw in a bag" portable.',
+                    'Price: Most expensive configuration.'
+                ],
+                bestFor: 'Upscale Patio Parties / Jazz on the Deck'
+            },
+            {
+                name: 'Bose SoundLink Flex 2 (Pair)',
+                backyardScore: 8.0,
+                strengths: [
+                    'PositionIQ: Detects if hanging from a grill or sitting on a table and adjusts EQ.',
+                    'Reliability: "Party Mode" via physical buttons is robust.',
+                    'Durability: IP67 (Dust/Waterproof). Can survive accidental drops on concrete.'
+                ],
+                weaknesses: [
+                    'Bluetooth Range: Stereo link can degrade if speakers are >20ft apart.',
+                    'Bass Loss: In open air, bass evaporates quickly beyond 10ft listening distance.',
+                    'Battery: Stereo mode drains battery significantly faster.'
+                ],
+                bestFor: 'BBQ / Grilling / Small Pool Areas'
+            },
+            {
+                name: 'UE Wonderboom 3 (Pair)',
+                backyardScore: 7.2,
+                strengths: [
+                    'Outdoor Boost: Specific EQ mode designed to cut through wind and ambient noise.',
+                    'Ruggedness: Completely waterproof and floats. Ideal for pool abuse.',
+                    '360 Dispersion: No "sweet spot" means sound reaches everyone in a circle.'
+                ],
+                weaknesses: [
+                    'Fidelity: Sounds harsh/tinny at max volume.',
+                    'Imaging: Stereo separation is muddy due to omnidirectional drivers.',
+                    'No Smart Features: Strictly a dumb Bluetooth pipe.'
+                ],
+                bestFor: 'Pool Vollyball / Kids Parties / Beach'
+            }
+        ];
+
+        const kitchenAnalysis = [
+            {
+                model: 'Echo Dot (Gen 5)',
+                single: {
+                    music_rating: 6.0,
+                    music_desc: 'Functional. Good for timers and news. Gets drowned out by range hoods.',
+                    tv_rating: 4.5,
+                    tv_desc: 'Downgrade. Connects via Bluetooth. The single 1.73" driver sounds thin and boxy compared to the Show 21\'s wider integrated soundbar.'
+                },
+                pair: {
+                    music_rating: 7.5,
+                    music_desc: 'Decent stereo field for background music. Still lacks bass authority.',
+                    tv_rating: 4.0,
+                    tv_desc: 'Downgrade (Mirrored). Because they are not stereo-paired for video, you get two mono sources fighting each other. Phase cancellation makes dialogue harder to understand than the built-in speakers.'
+                }
+            },
+            {
+                model: 'Echo (Gen 4)',
+                single: {
+                    music_rating: 8.0,
+                    music_desc: 'Strong performer. Omnidirectional sound fills kitchen corners effectively.',
+                    tv_rating: 6.5,
+                    tv_desc: 'Slight Upgrade. Connects via Bluetooth. The 3.0" woofer adds warmth to male vocals and effects that the Show 21 lacks, though you lose the "screen-centered" imaging.'
+                },
+                pair: {
+                    music_rating: 9.0,
+                    music_desc: 'Club-like atmosphere. Great bass for cooking, but visually bulky on counters.',
+                    tv_rating: 5.0,
+                    tv_desc: 'Downgrade (Mirrored). Dual mono bass is powerful, but without L/R separation, the soundstage collapses. Lip-sync latency via Group playback makes action scenes frustrating.'
+                }
+            },
+            {
+                model: 'Echo Dot Max',
+                single: {
+                    music_rating: 8.5,
+                    music_desc: 'The sweet spot. Small footprint, punchy mid-bass, clear highs.',
+                    tv_rating: 7.2,
+                    tv_desc: 'Upgrade. Connects via Bluetooth. The dedicated tweeter projects dialogue with superior crispness over the frying pan noise, beating the built-in speakers.'
+                },
+                pair: {
+                    music_rating: 9.5,
+                    music_desc: 'Audiophile kitchen. Best clarity and separation available in this form factor.',
+                    tv_rating: 5.5,
+                    tv_desc: 'Downgrade (Mirrored). While loud and clear, running two identical signals causes "comb filtering." It sounds unnatural compared to the dedicated stereo separation of the Show 21\'s built-in bar.'
+                }
+            }
+        ];
+
+        // --- Components ---
+
+        const NavButton = ({ id, label, icon, activeTab, setActiveTab, setMobileMenuOpen }) => (
+            <button 
+                onClick={() => { setActiveTab(id); setMobileMenuOpen(false); }}
+                className={`flex items-center space-x-3 w-full px-4 py-3 rounded-xl transition-all duration-200 ${
+                    activeTab === id 
+                    ? 'active-tab font-semibold' 
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
+            >
+                {icon}
+                <span>{label}</span>
+            </button>
+        );
+
+        const SectionHeader = ({ title, subtitle }) => (
+            <div className="mb-8 border-b border-slate-700 pb-4">
+                <h2 className="text-3xl font-bold text-white mb-2">{title}</h2>
+                <p className="text-slate-400">{subtitle}</p>
+            </div>
+        );
+
+        const Card = ({ children, className = "" }) => (
+            <div className={`glass-panel rounded-2xl p-6 hover:bg-slate-800/80 transition-all duration-300 ${className}`}>
+                {children}
+            </div>
+        );
+
+        const Badge = ({ text, color = 'blue' }) => {
+            const colors = {
+                blue: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+                green: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                red: 'bg-red-500/20 text-red-300 border-red-500/30',
+                purple: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+                amber: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+            };
+            return (
+                <span className={`px-2 py-1 rounded text-xs border ${colors[color]} font-mono`}>
+                    {text}
+                </span>
+            );
+        };
+
+        const AIAssistant = () => {
+            const [isOpen, setIsOpen] = useState(false);
+            const [query, setQuery] = useState('');
+            const [history, setHistory] = useState([
+                { role: 'model', content: 'Hello! I am the Audio Architect AI. I have full context of this report. Ask me about configurations, limitations, or technical specs.' }
+            ]);
+            const [loading, setLoading] = useState(false);
+            const chatContainerRef = useRef(null);
+
+            useEffect(() => {
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+                }
+            }, [history, isOpen]);
+
+            const handleSend = async () => {
+                if (!query.trim()) return;
+                const userMsg = query;
+                setQuery('');
+                setHistory(prev => [...prev, { role: 'user', content: userMsg }]);
+                setLoading(true);
+
+                const response = await callGemini(userMsg, history);
+                setHistory(prev => [...prev, { role: 'model', content: response }]);
+                setLoading(false);
+            };
+
+            return (
+                <>
+                    <button 
+                        onClick={() => setIsOpen(!isOpen)}
+                        className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-full shadow-2xl z-50 transition-all hover:scale-110"
+                    >
+                        {isOpen ? <X size={24}/> : <Bot size={24}/>}
+                    </button>
+
+                    {isOpen && (
+                        <div className="fixed bottom-24 right-6 w-96 h-[500px] glass-panel rounded-2xl flex flex-col border border-blue-500/30 z-50 shadow-2xl overflow-hidden animate-fade-in">
+                            <div className="bg-slate-800 p-4 border-b border-slate-700 flex justify-between items-center">
+                                <h3 className="font-bold text-white flex items-center"><Bot size={18} className="mr-2 text-blue-400"/> Architect AI</h3>
+                                <span className="text-xs text-green-400 flex items-center"><span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span> Online</span>
+                            </div>
+                            
+                            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+                                {history.map((msg, i) => (
+                                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} chat-message`}>
+                                        <div className={`max-w-[85%] p-3 rounded-lg text-sm ${
+                                            msg.role === 'user' 
+                                            ? 'bg-blue-600 text-white rounded-br-none' 
+                                            : 'bg-slate-700 text-slate-200 rounded-bl-none'
+                                        }`}>
+                                            <div dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }} />
+                                        </div>
+                                    </div>
+                                ))}
+                                {loading && (
+                                    <div className="flex justify-start">
+                                        <div className="bg-slate-700 p-3 rounded-lg rounded-bl-none">
+                                            <Loader2 size={16} className="text-blue-400"/>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="p-3 bg-slate-800 border-t border-slate-700 flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={query}
+                                    onChange={(e) => setQuery(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                                    placeholder="Ask about audio configs..."
+                                    className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 text-sm text-white focus:outline-none focus:border-blue-500"
+                                />
+                                <button onClick={handleSend} disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg disabled:opacity-50">
+                                    <Send size={18}/>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+
+        // --- Views ---
+
+        const SpeakerComparison = () => {
+            const [viewMode, setViewMode] = useState('split'); // split | single | stereo
+
+            return (
+                <div className="animate-fade-in pb-20">
+                    <SectionHeader title="Standalone vs. Stereo Analysis" subtitle="Comprehensive performance differentiation for all units" />
+                    
+                    <div className="flex justify-end mb-6 space-x-2">
+                         <button onClick={() => setViewMode('split')} className={`px-3 py-1 rounded text-xs ${viewMode === 'split' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Split View</button>
+                         <button onClick={() => setViewMode('single')} className={`px-3 py-1 rounded text-xs ${viewMode === 'single' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Single Focus</button>
+                         <button onClick={() => setViewMode('stereo')} className={`px-3 py-1 rounded text-xs ${viewMode === 'stereo' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Stereo Focus</button>
+                    </div>
+
+                    <div className="space-y-8">
+                        {combinedSpeakerData.map((item) => (
+                            <Card key={item.id} className="relative overflow-hidden">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 border-b border-slate-700 pb-4">
+                                    <div>
+                                        <div className="flex items-center space-x-3 mb-1">
+                                            <h3 className="text-2xl font-bold text-white">{item.name}</h3>
+                                            <Badge text={item.category} color={item.id.includes('citation') ? 'amber' : 'purple'} />
+                                        </div>
+                                        <p className="text-slate-400 text-sm font-mono">{item.specs}</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    {/* Standalone Block */}
+                                    {(viewMode === 'split' || viewMode === 'single') && (
+                                        <div className="bg-slate-900/50 p-5 rounded-xl border border-slate-700/50">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h4 className="text-blue-400 font-bold flex items-center"><Speaker size={18} className="mr-2"/> Single Unit</h4>
+                                                <span className="text-xs font-bold bg-blue-900 text-blue-200 px-2 py-1 rounded">{item.standalone.score}/10</span>
+                                            </div>
+                                            <p className="text-slate-300 text-sm leading-relaxed">{item.standalone.desc}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Stereo Block */}
+                                    {(viewMode === 'split' || viewMode === 'stereo') && (
+                                        <div className="bg-slate-900/50 p-5 rounded-xl border border-purple-500/20">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h4 className="text-purple-400 font-bold flex items-center"><Layers size={18} className="mr-2"/> Stereo Pair</h4>
+                                                <span className="text-xs font-bold bg-purple-900 text-purple-200 px-2 py-1 rounded">{item.stereo.score}/10</span>
+                                            </div>
+                                            <p className="text-slate-300 text-sm leading-relaxed">{item.stereo.desc}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </Card>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const PortableStereo = () => (
+             <div className="animate-fade-in pb-20">
+                <SectionHeader title="Portable Stereo Pairs" subtitle="Outdoor & Backyard Performance Scenarios" />
+                
+                <div className="grid gap-8">
+                    {portableStereoData.map((pair, idx) => (
+                        <div key={idx} className="glass-panel p-0 rounded-2xl overflow-hidden flex flex-col md:flex-row">
+                            <div className="p-6 md:w-1/3 bg-slate-800/80 flex flex-col justify-between">
+                                <div>
+                                    <h3 className="text-xl font-bold text-white mb-4">{pair.name}</h3>
+                                    <div className="inline-block bg-slate-900 rounded-lg p-3 border border-slate-700">
+                                        <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Backyard Audio</div>
+                                        <div className="text-3xl font-bold text-emerald-400">{pair.backyardScore}<span className="text-sm text-slate-500">/10</span></div>
+                                    </div>
+                                </div>
+                                <div className="mt-6">
+                                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Ideal Use Case</p>
+                                    <p className="text-sm text-white italic">"{pair.bestFor}"</p>
+                                </div>
+                            </div>
+                            
+                            <div className="p-6 md:w-2/3 grid md:grid-cols-2 gap-6 bg-slate-900/20">
+                                <div>
+                                    <h4 className="flex items-center text-emerald-400 font-bold mb-3">
+                                        <Sun size={18} className="mr-2"/> Strengths
+                                    </h4>
+                                    <ul className="space-y-2">
+                                        {pair.strengths.map((str, i) => (
+                                            <li key={i} className="text-sm text-slate-300 flex items-start">
+                                                <span className="text-emerald-500 mr-2">•</span> {str}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h4 className="flex items-center text-red-400 font-bold mb-3">
+                                        <XCircle size={18} className="mr-2"/> Weaknesses
+                                    </h4>
+                                    <ul className="space-y-2">
+                                        {pair.weaknesses.map((weak, i) => (
+                                            <li key={i} className="text-sm text-slate-300 flex items-start">
+                                                <span className="text-red-500 mr-2">•</span> {weak}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const KitchenHub = () => (
+            <div className="animate-fade-in pb-20">
+                <SectionHeader title="Kitchen Intelligence Hub" subtitle="Echo Show 21: Configuration Analysis" />
+                
+                <div className="bg-amber-900/20 border border-amber-500/30 p-6 rounded-2xl mb-8 flex items-start space-x-4">
+                    <div className="bg-amber-600/20 p-3 rounded-full text-amber-400"><Tv size={24}/></div>
+                    <div>
+                        <h4 className="font-bold text-white text-lg">Configuration Reality: Mono vs. Mirrored</h4>
+                        <p className="text-slate-300 text-sm mt-1 leading-relaxed">
+                             Without Alexa Home Theater support, your options for TV Audio are limited to <strong>Bluetooth (Single Speaker)</strong> or <strong>Grouped Audio (Mirrored Mono)</strong>. 
+                             <br/>
+                             <span className="text-amber-400 block mt-2">
+                                Warning: "Mirrored Mono" (Group) playback means both speakers play identical Left+Right signals. This causes phase cancellation (comb filtering) and loss of directionality compared to the stereo-capable built-in soundbar.
+                             </span>
+                        </p>
+                    </div>
+                </div>
+
+                <div className="grid gap-6">
+                    {/* Echo Show 21 Standalone Baseline */}
+                     <div className="glass-panel p-0 rounded-xl overflow-hidden border border-slate-600">
+                        <div className="bg-slate-700 p-4 border-b border-slate-600 flex justify-between items-center">
+                            <h3 className="text-xl font-bold text-white">Echo Show 21 (Built-in Speakers)</h3>
+                            <Badge text="BASELINE" color="blue"/>
+                        </div>
+                         <div className="p-6 grid md:grid-cols-2 gap-6">
+                            <div>
+                                <span className="text-slate-400 text-xs font-bold uppercase">Music Audio</span>
+                                <div className="text-2xl font-bold text-blue-400 mb-1">7.0<span className="text-sm text-slate-500">/10</span></div>
+                                <p className="text-slate-300 text-sm">Serviceable. Good volume, stereo separation in near-field.</p>
+                            </div>
+                            <div>
+                                <span className="text-slate-400 text-xs font-bold uppercase">TV/Movie Audio</span>
+                                <div className="text-2xl font-bold text-blue-400 mb-1">6.0<span className="text-sm text-slate-500">/10</span></div>
+                                <p className="text-slate-300 text-sm">Clear dialogue, proper stereo imaging. Zero surround effect.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {kitchenAnalysis.map((device, idx) => (
+                        <div key={idx} className="glass-panel p-0 rounded-xl overflow-hidden">
+                            <div className="bg-slate-800 p-4 border-b border-slate-700">
+                                <h3 className="text-xl font-bold text-white">+ Adding {device.model}s</h3>
+                            </div>
+                            <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-700">
+                                <div className="p-6">
+                                    <div className="flex items-center mb-4 text-blue-400">
+                                        <Speaker size={18} className="mr-2"/> 
+                                        <span className="font-bold uppercase text-xs tracking-wider">Single Speaker (Bluetooth)</span>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500 text-xs font-bold uppercase">Music Rating</span>
+                                                <span className="font-bold text-emerald-400">{device.single.music_rating}/10</span>
+                                            </div>
+                                            <p className="text-slate-300 text-sm mt-1">{device.single.music_desc}</p>
+                                        </div>
+                                        <div className="pt-2 border-t border-slate-700/50">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500 text-xs font-bold uppercase">TV/Movie Rating</span>
+                                                <span className="font-bold text-white">{device.single.tv_rating}/10</span>
+                                            </div>
+                                            <p className="text-slate-300 text-sm mt-1">{device.single.tv_desc}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-6 bg-slate-800/20">
+                                    <div className="flex items-center mb-4 text-purple-400">
+                                        <Layers size={18} className="mr-2"/> 
+                                        <span className="font-bold uppercase text-xs tracking-wider">Multi-Speaker Group (Mirrored)</span>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500 text-xs font-bold uppercase">Music Rating</span>
+                                                <span className="font-bold text-emerald-400">{device.pair.music_rating}/10</span>
+                                            </div>
+                                            <p className="text-slate-300 text-sm mt-1">{device.pair.music_desc}</p>
+                                        </div>
+                                        <div className="pt-2 border-t border-slate-700/50">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500 text-xs font-bold uppercase">TV/Movie Rating</span>
+                                                <span className="font-bold text-white">{device.pair.tv_rating}/10</span>
+                                            </div>
+                                            <p className="text-slate-300 text-sm mt-1">{device.pair.tv_desc}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const BoseInvestigation = () => {
+            return (
+                <div className="animate-fade-in pb-20">
+                    <SectionHeader title="Bose Investigative Analysis" subtitle="Protocol Conflict: SimpleSync vs. Stereo Mode" />
+                    
+                    <div className="grid md:grid-cols-2 gap-8 mb-12">
+                         <Card className="border-l-4 border-emerald-500">
+                            <h3 className="text-lg font-bold text-white mb-2 flex items-center">
+                                <CheckCircle2 className="text-emerald-500 mr-2" size={20}/> Question 1
+                            </h3>
+                            <p className="text-slate-300 text-sm italic mb-4">"Can I link 2 SoundLink Flex speakers together to create a stereo pair?"</p>
+                            <p className="font-bold text-emerald-400 text-xl">YES.</p>
+                            <p className="text-slate-400 text-sm mt-2">
+                                Via the Bose Connect app or physical button combinations, two Flex units can enter "Stereo Mode" (Left/Right separation) or "Party Mode" (Dual Mono).
+                            </p>
+                        </Card>
+                        
+                        <Card className="border-l-4 border-red-500 bose-fail">
+                            <h3 className="text-lg font-bold text-white mb-2 flex items-center">
+                                <XCircle className="text-red-500 mr-2" size={20}/> Question 2
+                            </h3>
+                            <p className="text-slate-300 text-sm italic mb-4">"Can I create a simple sync group with the Bose 550 and that stereo paired flex?"</p>
+                            <p className="font-bold text-red-500 text-xl">NO. ABSOLUTELY NOT.</p>
+                            <p className="text-slate-400 text-sm mt-2">
+                                This is a hardware protocol limitation. The Bluetooth radio cannot sustain the SimpleSync low-latency stream from the Soundbar while simultaneously maintaining the inter-speaker sync required for the Stereo Pair.
+                            </p>
+                        </Card>
+                    </div>
+
+                    <div className="bg-slate-900 p-8 rounded-xl border border-slate-700 relative overflow-hidden">
+                        <h3 className="text-center font-bold text-white mb-8">Topology Failure Visualizer</h3>
+                        
+                        <div className="flex flex-col md:flex-row justify-center items-center gap-8 md:gap-16">
+                            {/* Soundbar */}
+                            <div className="relative z-10 text-center">
+                                <div className="w-48 h-10 bg-slate-600 rounded flex items-center justify-center text-white font-bold shadow-lg">Soundbar 550</div>
+                                <div className="text-xs text-slate-500 mt-2">Source</div>
+                            </div>
+
+                            {/* Connection 1 */}
+                            <div className="flex flex-col items-center">
+                                <div className="h-0.5 w-16 bg-blue-500 md:hidden"></div>
+                                <div className="w-0.5 h-16 bg-blue-500 hidden md:block"></div>
+                                <div className="bg-blue-900 text-blue-300 text-[10px] px-2 py-1 rounded border border-blue-500/50 my-2">SimpleSync (BT)</div>
+                                <div className="h-0.5 w-16 bg-blue-500 md:hidden"></div>
+                                <div className="w-0.5 h-16 bg-blue-500 hidden md:block"></div>
+                            </div>
+
+                            {/* Speaker Cluster */}
+                            <div className="relative z-10 p-4 border-2 border-dashed border-slate-600 rounded-xl bg-slate-800/50">
+                                <div className="absolute -top-3 left-4 bg-slate-900 px-2 text-xs text-slate-400 font-mono">Stereo Group</div>
+                                <div className="flex gap-4">
+                                    <div className="text-center">
+                                        <div className="w-24 h-32 bg-blue-600 rounded-lg flex flex-col items-center justify-center text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]">
+                                            <span className="font-bold">Flex 1</span>
+                                            <span className="text-[10px] opacity-75">(Master)</span>
+                                        </div>
+                                    </div>
+
+                                    {/* The Break */}
+                                    <div className="flex flex-col justify-center items-center">
+                                        <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500 text-red-500">
+                                            <X size={20}/>
+                                        </div>
+                                        <span className="text-[10px] text-red-400 mt-1 font-bold w-16 text-center leading-tight">Link Broken</span>
+                                    </div>
+
+                                    <div className="text-center opacity-50 grayscale">
+                                        <div className="w-24 h-32 bg-blue-600 rounded-lg flex flex-col items-center justify-center text-white">
+                                            <span className="font-bold">Flex 2</span>
+                                            <span className="text-[10px] opacity-75">(Slave)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-8 p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-center">
+                            <p className="text-red-200 text-sm">
+                                <strong>Result:</strong> Upon connecting Flex 1 to Soundbar 550 via SimpleSync, Flex 2 will immediately disconnect. You must choose between <strong>TV Audio (Mono)</strong> or <strong>Phone Audio (Stereo)</strong>.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App Shell ---
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('speakers');
+            const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+            const renderContent = () => {
+                switch(activeTab) {
+                    case 'speakers': return <SpeakerComparison />;
+                    case 'portable': return <PortableStereo />;
+                    case 'kitchen': return <KitchenHub />;
+                    case 'bose': return <BoseInvestigation />;
+                    default: return <SpeakerComparison />;
+                }
+            };
+
+            const NavItems = [
+                { id: 'speakers', label: 'Speaker Analysis', icon: <Speaker size={20}/> },
+                { id: 'portable', label: 'Portable Stereo', icon: <Radio size={20}/> },
+                { id: 'kitchen', label: 'Kitchen Hub', icon: <Home size={20}/> },
+                { id: 'bose', label: 'Bose Investigation', icon: <Zap size={20}/> },
+            ];
+
+            return (
+                <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden">
+                    {/* Sidebar (Desktop) */}
+                    <aside className="hidden md:flex flex-col w-64 bg-slate-900 border-r border-slate-800 p-4">
+                        <div className="flex items-center space-x-2 px-4 mb-8 mt-2">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">A</div>
+                            <span className="text-lg font-bold text-white tracking-tight">AudioLab 2026</span>
+                        </div>
+                        <nav className="space-y-1 flex-1">
+                            {NavItems.map(item => (
+                                <NavButton 
+                                    key={item.id} 
+                                    {...item} 
+                                    activeTab={activeTab} 
+                                    setActiveTab={setActiveTab}
+                                    setMobileMenuOpen={setMobileMenuOpen}
+                                />
+                            ))}
+                        </nav>
+                        <div className="px-4 text-xs text-slate-600 mt-4">
+                            Report ID: 7ed9ffe9-v7
+                        </div>
+                    </aside>
+
+                    {/* Mobile Header */}
+                    <div className="md:hidden fixed top-0 w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 z-50 px-4 py-3 flex justify-between items-center">
+                        <span className="font-bold text-white">AudioLab 2026</span>
+                        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-white">
+                            {mobileMenuOpen ? <X /> : <Menu />}
+                        </button>
+                    </div>
+
+                    {/* Mobile Menu Overlay */}
+                    {mobileMenuOpen && (
+                        <div className="fixed inset-0 bg-slate-900 z-40 pt-16 px-4 md:hidden">
+                            <nav className="space-y-2">
+                                {NavItems.map(item => (
+                                    <NavButton 
+                                        key={item.id} 
+                                        {...item} 
+                                        activeTab={activeTab} 
+                                        setActiveTab={setActiveTab}
+                                        setMobileMenuOpen={setMobileMenuOpen}
+                                    />
+                                ))}
+                            </nav>
+                        </div>
+                    )}
+
+                    {/* Main Content Area */}
+                    <main className="flex-1 overflow-y-auto p-4 md:p-8 pt-20 md:pt-8 scroll-smooth relative">
+                        <div className="max-w-5xl mx-auto">
+                            {renderContent()}
+                        </div>
+                        <AIAssistant />
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
